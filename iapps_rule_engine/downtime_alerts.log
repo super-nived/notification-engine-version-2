@@ -1,5 +1,0 @@
-[2026-02-26 09:32:36 UTC] NEW DOWNTIME ENTRY | id=7aqakirlgfh00hc | machines=264qrevwbz5772d | reason_code=maintenance | start_date=2025-07-12 12:00:00.000Z | end_date=2025-07-16 12:00:00.000Z | created=2026-01-23 05:52:22.173Z
-[2026-02-26 12:10:01 UTC] NEW DOWNTIME ENTRY | id=2fs5v8qoc1x3blh | machines=264qrevwbz5772d | reason_code=test_alert | start_date=2026-02-26 10:00:00.000Z | end_date=2026-02-26 11:00:00.000Z | created=2026-02-26 12:09:09.787Z
-[2026-02-26 12:20:03 UTC] NEW DOWNTIME ENTRY | id=nexapr4vy1ge5rf | machines=264qrevwbz5772d | reason_code=real_downtime_test | start_date=2026-02-26 14:00:00.000Z | end_date=2026-02-26 15:00:00.000Z | created=2026-02-26 12:19:30.689Z
-[2026-02-26 12:28:01 UTC] NEW DOWNTIME ENTRY | id=1atuxfhdvhhcxhy | machines=264qrevwbz5772d | reason_code=verify_single_alert | start_date=2026-02-26 16:00:00.000Z | end_date=2026-02-26 17:00:00.000Z | created=2026-02-26 12:27:18.485Z
-[2026-02-27 05:41:01 UTC] NEW DOWNTIME ENTRY | id=dpqllylpanu44f4 | machines=264qrevwbz5772d | reason_code=live_test_now | start_date=2026-02-27 06:00:00.000Z | end_date=2026-02-27 07:00:00.000Z | created=2026-02-27 05:40:12.636Z
