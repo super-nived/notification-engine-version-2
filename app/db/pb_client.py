@@ -11,7 +11,7 @@ _token: str | None = None
 def authenticate():
     global _token
     resp = requests.post(
-        f"{settings.PB_URL}/api/admins/auth-with-password",
+        f"{settings.PB_URL}/api/collections/_superusers/auth-with-password",
         json={
             "identity": settings.PB_ADMIN_EMAIL,
             "password": settings.PB_ADMIN_PASSWORD,

@@ -93,18 +93,9 @@ def toggle_rule(rule_id: str, body: RuleToggle):
 @router.delete("/{rule_id}")
 def delete_rule(rule_id: str):
     return _handle(
-        lambda: (service.delete_rule(rule_id) or success(
-            message="Rule deleted successfully"
-        ))
-    )
-
-
-@router.get("/{rule_id}/schedules")
-def get_schedules(rule_id: str):
-    return _handle(
-        lambda: success(
-            data=service.get_schedules(rule_id),
-            message="Schedules fetched",
+        lambda: (
+            service.delete_rule(rule_id)
+            or success(message="Rule deleted successfully")
         )
     )
 

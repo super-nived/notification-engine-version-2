@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    PB_URL: str = "https://pb.dev.industryapps.net/OCCDUBAI"
+    PB_URL: str = "http://127.0.0.1:8090"
     PB_ADMIN_EMAIL: str = "abhi-s@industryapps.net"
     PB_ADMIN_PASSWORD: str = "Linux@1994"
 
@@ -16,9 +16,6 @@ class Settings(BaseSettings):
     APP_PORT: int = 8000
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
-
-    # Scheduler mode: "next_run" (default) or "schedule_records"
-    SCHEDULER_MODE: str = "next_run"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

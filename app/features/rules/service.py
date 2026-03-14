@@ -2,7 +2,6 @@
 
 Orchestrates rule CRUD with dispatcher/SSE routing.
 No business logic in routers — all logic lives here.
-Dispatcher interface is the same for both modes (next_run / schedule_records).
 """
 
 import logging
@@ -124,14 +123,6 @@ def delete_rule(rule_id: str) -> None:
     logger.info("Rule '%s' deleted", rule.get("name", ""))
 
 
-def get_schedules(rule_id: str) -> list[dict]:
-    try:
-        return repo.get_schedules_for_rule(rule_id)
-    except Exception as exc:
-        logger.error("Failed to get schedules: %s", exc)
-        raise ServiceError("Could not fetch schedules.")
-
-
 def get_execution_logs(rule_name: str | None = None) -> list[dict]:
     try:
         return repo.get_execution_logs(rule_name)
@@ -166,11 +157,10 @@ def _apply_default_params(data: dict) -> None:
         data["params"] = {}
 
 
-# ── Routing (uses dispatcher's common interface) ─────────────
+# ── Routing ──────────────────────────────────────────────────
 
 
 def _route_new_rule(rule: dict) -> None:
-    """Route a newly created or updated rule."""
     if rule_is_as_it_occurs(rule):
         _register_sse(rule)
     elif rule_is_scheduled(rule):
@@ -178,7 +168,6 @@ def _route_new_rule(rule: dict) -> None:
 
 
 def _unroute_old_rule(old_rule: dict) -> None:
-    """Clean up old routing before re-routing."""
     if rule_is_as_it_occurs(old_rule):
         _unregister_sse(old_rule)
     elif rule_is_scheduled(old_rule):
@@ -223,8 +212,9 @@ def _dispatcher_action(method: str, rule: dict) -> None:
     if not _dispatcher:
         return
     fn = getattr(_dispatcher, method, None)
-    if fn:
-        try:
-            fn(rule)
-        except Exception as exc:
-            logger.error("Dispatcher.%s failed: %s", method, exc)
+    if not fn:
+        return
+    try:
+        fn(rule)
+    except Exception as exc:
+        logger.error("Dispatcher.%s failed: %s", method, exc)
