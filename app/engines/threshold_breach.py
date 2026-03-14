@@ -24,6 +24,32 @@ class ThresholdBreachEngine(BaseEngine):
         return "Threshold Breach"
 
     @property
+    def description(self) -> str:
+        return (
+            "Checks the latest record's numeric field against a "
+            "fixed limit. Alerts once when the value crosses the "
+            "threshold. Resets automatically when the value recovers "
+            "— so it won't spam alerts every cycle."
+        )
+
+    @property
+    def use_cases(self) -> list[str]:
+        return [
+            "Alert when OEE drops below 60%",
+            "Alert when machine temperature exceeds 90°C",
+            "Alert when production count falls below target (e.g. < 100 units)",
+            "Alert when error rate goes above 5%",
+        ]
+
+    @property
+    def example(self) -> str:
+        return (
+            "Metric to monitor = OEE · Alert when value is = Less than · Threshold value = 60\n"
+            "→ You get one alert when OEE falls below 60. "
+            "Automatically clears when it recovers. No duplicate alerts."
+        )
+
+    @property
     def collection(self) -> str:
         return "production_metrics"
 
@@ -36,20 +62,26 @@ class ThresholdBreachEngine(BaseEngine):
         return [
             {
                 "key": "condition_field",
-                "label": "Field",
+                "label": "Metric to monitor",
                 "type": "text",
                 "default": "oee",
             },
             {
                 "key": "condition_op",
-                "label": "Operator",
+                "label": "Alert when value is",
                 "type": "select",
-                "options": ["lt", "gt", "eq", "lte", "gte"],
+                "options": [
+                    {"value": "lt", "label": "Less than"},
+                    {"value": "gt", "label": "Greater than"},
+                    {"value": "eq", "label": "Equal to"},
+                    {"value": "lte", "label": "Less than or equal"},
+                    {"value": "gte", "label": "Greater than or equal"},
+                ],
                 "default": "lt",
             },
             {
                 "key": "condition_value",
-                "label": "Threshold",
+                "label": "Threshold value",
                 "type": "number",
                 "default": 65,
             },

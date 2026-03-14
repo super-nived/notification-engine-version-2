@@ -18,6 +18,31 @@ class NewDowntimeEntryEngine(BaseEngine):
         return "New Downtime Entry"
 
     @property
+    def description(self) -> str:
+        return (
+            "Sends an alert immediately whenever a new downtime "
+            "record is logged. Fully automatic — no configuration "
+            "needed. Every new entry triggers a notification."
+        )
+
+    @property
+    def use_cases(self) -> list[str]:
+        return [
+            "Alert the maintenance team when any machine goes down",
+            "Notify supervisors of unplanned production stops",
+            "Track downtime events in real-time for shift reports",
+            "Escalate repeated downtime on the same machine",
+        ]
+
+    @property
+    def example(self) -> str:
+        return (
+            "No setup needed — fully automatic\n"
+            "→ Every new downtime record triggers an instant "
+            "alert to your chosen targets. Zero configuration."
+        )
+
+    @property
     def collection(self) -> str:
         return "shift_downtime"
 

@@ -61,11 +61,16 @@ def get_default_params(engine_name: str) -> dict:
 
 
 def get_engine_registry_dict() -> dict:
-    """Return full registry as serializable dict for the API."""
+    """Return full registry as serializable dict for the API.
+
+    Only user-facing fields are exposed. Internal fields like
+    collection, condition_type stay server-side.
+    """
     return {
         name: {
-            "collection": eng.collection,
-            "condition_type": eng.condition_type,
+            "description": eng.description,
+            "use_cases": eng.use_cases,
+            "example": eng.example,
             "editable_params": eng.editable_params,
         }
         for name, eng in _engines.items()

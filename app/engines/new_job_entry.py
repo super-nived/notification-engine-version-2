@@ -19,6 +19,31 @@ class NewJobEntryEngine(BaseEngine):
         return "New Job Entry"
 
     @property
+    def description(self) -> str:
+        return (
+            "Watches for new job records and sends an alert when a "
+            "job matches your configured field values. Triggers "
+            "instantly via real-time events — no polling delay."
+        )
+
+    @property
+    def use_cases(self) -> list[str]:
+        return [
+            "Alert when a new job is released for production",
+            "Alert when a customer-approved job is created",
+            "Alert when a high-priority job enters the system",
+            "Alert when a specific job type is logged",
+        ]
+
+    @property
+    def example(self) -> str:
+        return (
+            "Job status must be = Released · Customer approved must be = YES\n"
+            "→ You get an alert the moment a new job with "
+            "these values is created. Instant, no delay."
+        )
+
+    @property
     def collection(self) -> str:
         return "job_details"
 
@@ -31,13 +56,13 @@ class NewJobEntryEngine(BaseEngine):
         return [
             {
                 "key": "jobStatus_value",
-                "label": "Job Status",
+                "label": "Job status must be",
                 "type": "text",
                 "default": "Released",
             },
             {
                 "key": "customerApproved_value",
-                "label": "Customer Approved",
+                "label": "Customer approved must be",
                 "type": "text",
                 "default": "YES",
             },

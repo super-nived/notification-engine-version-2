@@ -19,6 +19,21 @@ class BaseEngine(ABC):
 
     @property
     @abstractmethod
+    def description(self) -> str:
+        """Short user-friendly description of what this engine does."""
+
+    @property
+    @abstractmethod
+    def use_cases(self) -> list[str]:
+        """List of 'when to use this' examples."""
+
+    @property
+    @abstractmethod
+    def example(self) -> str:
+        """Concrete example showing how this engine works."""
+
+    @property
+    @abstractmethod
     def collection(self) -> str:
         """PocketBase collection this engine reads from."""
 
