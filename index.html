@@ -154,7 +154,7 @@
   .btn-sm { padding: 5px 10px; font-size: 10px; }
 
   /* GRID STATS */
-  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
   .stat-card {
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 4px; padding: 16px 18px;
@@ -418,7 +418,7 @@
 
 <div class="topbar">
   <div class="topbar-brand">NOTIF-MGR v2.1</div>
-  <div class="topbar-meta">SYSTEM READY &nbsp;·&nbsp; 3 ACTIVE RULES</div>
+  <div class="topbar-meta" id="topbar-meta">SYSTEM READY</div>
 </div>
 
 <div class="layout">
@@ -460,26 +460,18 @@
         <button class="btn btn-primary" onclick="openModal('add')">+ New Rule</button>
       </div>
 
-      <div class="stats-row">
+      <div class="stats-row" id="stats-row">
         <div class="stat-card">
           <div class="stat-label">Active Rules</div>
-          <div class="stat-value" id="stat-active">3</div>
-          <div class="stat-delta">↑ 1 this week</div>
+          <div class="stat-value" id="stat-active">--</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Sent Today</div>
-          <div class="stat-value">47</div>
-          <div class="stat-delta" style="color:var(--amber)">→ on track</div>
+          <div class="stat-label">Total Executions Today</div>
+          <div class="stat-value" id="stat-total-exec">--</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Email Channel</div>
-          <div class="stat-value">31</div>
-          <div class="stat-delta">↑ 66%</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">In-App</div>
-          <div class="stat-value">16</div>
-          <div class="stat-delta">↑ 34%</div>
+          <div class="stat-label">Failed Executions</div>
+          <div class="stat-value" id="stat-failed-exec" style="color:var(--red)">--</div>
         </div>
       </div>
 
@@ -513,11 +505,7 @@
 
       <div class="section-card">
         <div class="section-card-title">Trigger Types <span>SELECT</span></div>
-        <div class="chip-group" id="engine-chips">
-          <div class="chip selected" onclick="selectEngineChip(this)">Threshold Breach</div>
-          <div class="chip" onclick="selectEngineChip(this)">New Job Entry</div>
-          <div class="chip" onclick="selectEngineChip(this)">New Downtime Entry</div>
-        </div>
+        <div class="chip-group" id="engine-chips"></div>
       </div>
 
       <div class="section-card">
@@ -562,11 +550,7 @@
       <div class="field-row">
         <div class="field">
           <label>Rule Engine</label>
-          <select id="f-engine" onchange="onEngineChange()">
-            <option>Threshold Breach</option>
-            <option>New Job Entry</option>
-            <option>New Downtime Entry</option>
-          </select>
+          <select id="f-engine" onchange="onEngineChange()"></select>
         </div>
         <div class="field">
           <label>Expiry Date</label>
@@ -576,21 +560,11 @@
       <div class="field-row">
         <div class="field">
           <label>Frequency</label>
-          <select id="f-frequency">
-            <option>As It Occurs</option>
-            <option>Every 1 Minute</option>
-            <option>Hourly</option>
-            <option>Daily</option>
-            <option>Weekly</option>
-          </select>
+          <select id="f-frequency"></select>
         </div>
         <div class="field">
           <label>Channel</label>
-          <select id="f-channel">
-            <option>In-App</option>
-            <option>Email</option>
-            <option>Both</option>
-          </select>
+          <select id="f-channel"></select>
         </div>
       </div>
       <div class="field">
@@ -604,10 +578,9 @@
         <label>Target Users / Groups</label>
         <div class="target-wrap">
           <div class="target-input-wrap" id="target-input-wrap" onclick="document.getElementById('target-text').focus()">
-            <input type="text" id="target-text" class="target-input" placeholder="Search users or groups…"
-              oninput="filterTargets(this.value)" onfocus="showTargetDrop()" onkeydown="targetKeydown(event)">
+            <input type="text" id="target-text" class="target-input" placeholder="Type email or group name, press Enter…"
+              onkeydown="targetKeydown(event)">
           </div>
-          <div class="target-dropdown" id="target-dropdown" style="display:none;"></div>
         </div>
       </div>
     </div>
@@ -629,22 +602,13 @@ const WS_URL = `ws://${location.host}/ws/notifications`;
 // ---- STATE ----
 let rules = [];
 let engineRegistry = {};
+let formOptions = {};
 let selectedTargets = [];
-let selectedEngine = 'Threshold Breach';
+let selectedEngine = '';
 let logEntries = [];
 
-const TARGET_OPTIONS = [
-  { label: 'Ops Team',       type: 'group' },
-  { label: 'Security Team',  type: 'group' },
-  { label: 'Finance Group',  type: 'group' },
-  { label: 'All Staff',      type: 'group' },
-  { label: 'Dev Team',       type: 'group' },
-  { label: 'alice@corp.io',  type: 'user' },
-  { label: 'bob@corp.io',    type: 'user' },
-  { label: 'carol@corp.io',  type: 'user' },
-  { label: 'dan@corp.io',    type: 'user' },
-  { label: 'eve@corp.io',    type: 'user' },
-];
+// Targets are typed freely — no hardcoded list.
+// User enters email addresses or group names directly.
 
 // ---- API HELPERS ----
 async function api(method, path, body) {
@@ -678,6 +642,66 @@ async function loadEngineRegistry() {
   } catch (e) {
     console.error('Failed to load engine registry:', e);
   }
+}
+
+async function loadFormOptions() {
+  try {
+    const res = await api('GET', '/rules/form-options');
+    formOptions = res.data || {};
+    engineRegistry = formOptions.engine_params || {};
+    populateFormDropdowns();
+  } catch (e) {
+    console.error('Failed to load form options:', e);
+  }
+}
+
+async function loadDashboardStats() {
+  try {
+    const res = await api('GET', '/rules/dashboard');
+    const stats = res.data || {};
+    document.getElementById('stat-active').textContent = stats.active_rules ?? '--';
+    document.getElementById('stat-total-exec').textContent = stats.total_executions_today ?? '--';
+    document.getElementById('stat-failed-exec').textContent = stats.failed_executions_today ?? '--';
+    document.getElementById('topbar-meta').textContent =
+      'SYSTEM READY  |  ' + (stats.active_rules || 0) + ' ACTIVE RULE' + (stats.active_rules !== 1 ? 'S' : '');
+    const badge = document.querySelector('.badge');
+    if (badge) badge.textContent = stats.active_rules || 0;
+  } catch (e) {
+    console.error('Failed to load dashboard stats:', e);
+  }
+}
+
+function populateFormDropdowns() {
+  const engineSel = document.getElementById('f-engine');
+  const freqSel = document.getElementById('f-frequency');
+  const channelSel = document.getElementById('f-channel');
+
+  engineSel.innerHTML = (formOptions.engines || [])
+    .map(e => '<option>' + esc(e) + '</option>').join('');
+
+  freqSel.innerHTML = (formOptions.frequencies || [])
+    .map(f => '<option>' + esc(f) + '</option>').join('');
+
+  channelSel.innerHTML = (formOptions.channels || [])
+    .map(c => '<option>' + esc(c) + '</option>').join('');
+
+  renderEngineChips();
+}
+
+function renderEngineChips() {
+  const container = document.getElementById('engine-chips');
+  const engines = formOptions.engines || [];
+  if (!engines.length) {
+    container.innerHTML = '<div style="font-size:11px;color:var(--muted);">No engines available.</div>';
+    return;
+  }
+  if (!selectedEngine || !engines.includes(selectedEngine)) {
+    selectedEngine = engines[0];
+  }
+  container.innerHTML = engines.map(e =>
+    '<div class="chip' + (e === selectedEngine ? ' selected' : '') +
+    '" onclick="selectEngineChip(this)">' + esc(e) + '</div>'
+  ).join('');
 }
 
 async function loadLogs() {
@@ -720,9 +744,7 @@ function mapRule(r) {
 }
 
 function updateTopbar() {
-  const active = rules.filter(r => r.status === 'active').length;
-  document.querySelector('.topbar-meta').textContent =
-    'SYSTEM READY  |  ' + active + ' ACTIVE RULE' + (active !== 1 ? 'S' : '');
+  loadDashboardStats();
 }
 
 // ---- NAVIGATION ----
@@ -731,19 +753,17 @@ function nav(page) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
   event.currentTarget.classList.add('active');
-  if (page === 'dashboard') loadRules();
+  if (page === 'dashboard') { loadRules(); loadDashboardStats(); }
+  if (page === 'rules') renderConditionBuilder();
   if (page === 'log') loadLogs();
 }
 
 // ---- TABLE ----
 function renderTable() {
   const tbody = document.getElementById('rules-tbody');
-  const activeCount = rules.filter(r => r.status === 'active').length;
-  document.querySelector('.badge').textContent = activeCount;
 
   if (!rules.length) {
     tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">&#x2298;</div><div class="empty-text">No rules configured.</div></div></td></tr>';
-    document.getElementById('stat-active').textContent = '0';
     return;
   }
   tbody.innerHTML = rules.map((r, i) => `
@@ -754,8 +774,8 @@ function renderTable() {
       <td><span class="tag tag-amber">${esc(r.frequency)}</span></td>
       <td><span class="tag tag-blue">${esc(r.channel)}</span></td>
       <td><div style="display:flex;flex-wrap:wrap;gap:4px;">${(r.targets||[]).map(t => {
-        const opt = TARGET_OPTIONS.find(o=>o.label===t);
-        const cls = opt && opt.type==='group' ? 'tag-green' : 'tag-blue';
+        const isEmail = t.includes('@');
+        const cls = isEmail ? 'tag-blue' : 'tag-green';
         return '<span class="tag ' + cls + '" style="font-size:9px;">' + esc(t) + '</span>';
       }).join('') || '<span style="color:var(--muted);font-size:11px;">--</span>'}</div></td>
       <td><span class="pill pill-${r.status}">${cap(r.status)}</span></td>
@@ -767,7 +787,6 @@ function renderTable() {
         </div>
       </td>
     </tr>`).join('');
-  document.getElementById('stat-active').textContent = activeCount;
 }
 
 function esc(s) {
@@ -828,12 +847,15 @@ function openModal(mode, idx) {
   } else {
     title.textContent = 'New Notification Rule';
     ['f-name','f-desc'].forEach(id => document.getElementById(id).value = '');
-    document.getElementById('f-engine').value = 'Threshold Breach';
+    const defaultEngine = (formOptions.engines || [])[0] || '';
+    const defaultFreq = (formOptions.frequencies || [])[0] || '';
+    const defaultChannel = (formOptions.channels || [])[0] || '';
+    document.getElementById('f-engine').value = defaultEngine;
     document.getElementById('f-expiry').value = '';
-    document.getElementById('f-frequency').value = 'As It Occurs';
-    document.getElementById('f-channel').value = 'In-App';
+    document.getElementById('f-frequency').value = defaultFreq;
+    document.getElementById('f-channel').value = defaultChannel;
     setSelectedTargets([]);
-    renderEngineParams('Threshold Breach', {});
+    renderEngineParams(defaultEngine, {});
   }
 }
 
@@ -960,42 +982,33 @@ function renderConditionBuilder() {
 
   const cfg = engineRegistry[selectedEngine];
   if (!cfg) {
-    list.innerHTML = '<div style="font-size:11px;color:var(--muted);">Loading engine config...</div>';
+    list.innerHTML = '<div style="font-size:11px;color:var(--muted);">Select an engine to view conditions.</div>';
     return;
   }
 
-  if (selectedEngine === 'Threshold Breach') {
-    const params = cfg.editable_params || [];
-    const fieldP = params.find(p => p.key === 'condition_field');
-    const opP = params.find(p => p.key === 'condition_op');
-    const valP = params.find(p => p.key === 'condition_value');
-    let opOpts = '';
-    (opP && opP.options || ['lt','gt','eq']).forEach(o => {
-      opOpts += '<option' + (o === (opP ? opP.default : 'lt') ? ' selected' : '') + '>' + o + '</option>';
-    });
-    list.innerHTML =
-      '<div style="display:grid; grid-template-columns:1fr 120px 1fr auto; gap:8px; align-items:center;">' +
-        '<input type="text" value="' + (fieldP ? fieldP.default : 'oee') + '" disabled>' +
-        '<select disabled>' + opOpts + '</select>' +
-        '<input type="text" placeholder="value" value="' + (valP ? valP.default : 65) + '">' +
-        '<div></div>' +
-      '</div>';
-  } else if (selectedEngine === 'New Job Entry') {
-    const params = cfg.editable_params || [];
-    let html = '';
-    params.forEach(p => {
-      html +=
-        '<div style="display:grid; grid-template-columns:1fr 120px 1fr; gap:8px; align-items:center; opacity:0.8;">' +
-          '<input type="text" value="' + p.key.replace('_value','') + '" disabled>' +
-          '<select disabled><option selected>equals</option></select>' +
-          '<input type="text" value="' + p.default + '" disabled>' +
-        '</div>';
-    });
-    html += '<div style="font-size:11px;color:var(--muted);margin-top:4px;">Conditions are fixed for New Job Entry rules.</div>';
-    list.innerHTML = html;
-  } else if (selectedEngine === 'New Downtime Entry') {
-    list.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:8px 0;">No conditions &mdash; alerts on every new downtime record automatically.</div>';
+  const params = cfg.editable_params || [];
+  if (!params.length) {
+    list.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:8px 0;">No configurable conditions &mdash; this engine triggers automatically.</div>';
+    return;
   }
+
+  let html = '';
+  params.forEach(p => {
+    html += '<div style="display:grid; grid-template-columns:120px 1fr; gap:8px; align-items:center;">';
+    html += '<span style="font-size:11px;color:var(--muted);">' + esc(p.label) + '</span>';
+    if (p.type === 'select') {
+      html += '<select disabled>';
+      (p.options || []).forEach(o => {
+        html += '<option' + (o === p.default ? ' selected' : '') + '>' + o + '</option>';
+      });
+      html += '</select>';
+    } else {
+      html += '<input type="' + (p.type === 'number' ? 'number' : 'text') + '" value="' + esc(String(p.default)) + '" disabled>';
+    }
+    html += '</div>';
+  });
+  html += '<div style="font-size:11px;color:var(--muted);margin-top:4px;">Default values shown. Edit when creating a rule.</div>';
+  list.innerHTML = html;
 }
 
 // ---- TOAST ----
@@ -1059,7 +1072,6 @@ function renderTargetTags() {
 function removeTarget(label) {
   selectedTargets = selectedTargets.filter(t => t !== label);
   renderTargetTags();
-  renderTargetDropdown('');
 }
 
 function addTarget(label) {
@@ -1068,48 +1080,21 @@ function addTarget(label) {
     renderTargetTags();
   }
   document.getElementById('target-text').value = '';
-  renderTargetDropdown('');
   document.getElementById('target-text').focus();
 }
 
-function showTargetDrop() {
-  renderTargetDropdown(document.getElementById('target-text').value);
-}
-
-function filterTargets(val) {
-  renderTargetDropdown(val);
-}
-
-function renderTargetDropdown(query) {
-  const drop = document.getElementById('target-dropdown');
-  const q = query.toLowerCase();
-  const filtered = TARGET_OPTIONS.filter(o => o.label.toLowerCase().includes(q));
-  if (!filtered.length) { drop.style.display = 'none'; return; }
-  drop.style.display = 'block';
-  drop.innerHTML = filtered.map(o => {
-    const isSel = selectedTargets.includes(o.label);
-    return '<div class="target-dropdown-item' + (isSel ? ' selected' : '') + '" onclick="addTarget(\'' + o.label.replace(/'/g,"\\'") + '\')">' +
-      '<span class="target-type-icon ' + (o.type === 'group' ? 'icon-group' : 'icon-user') + '">' + (o.type === 'group' ? 'GRP' : 'USR') + '</span>' +
-      '<span>' + esc(o.label) + '</span>' +
-      (isSel ? '<span style="margin-left:auto;color:var(--amber);font-size:10px;">&#x2713;</span>' : '') +
-    '</div>';
-  }).join('');
-}
 
 function targetKeydown(e) {
-  if (e.key === 'Escape') {
-    document.getElementById('target-dropdown').style.display = 'none';
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const val = e.target.value.trim();
+    if (val) { addTarget(val); }
   }
   if (e.key === 'Backspace' && !e.target.value && selectedTargets.length) {
     removeTarget(selectedTargets[selectedTargets.length - 1]);
   }
 }
 
-document.addEventListener('click', e => {
-  if (!document.getElementById('target-input-wrap').contains(e.target)) {
-    document.getElementById('target-dropdown').style.display = 'none';
-  }
-});
 
 // ---- INIT ----
 document.getElementById('modal-overlay').addEventListener('click', e => {
@@ -1117,8 +1102,9 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 });
 
 (async function init() {
-  await loadEngineRegistry();
+  await loadFormOptions();
   await loadRules();
+  await loadDashboardStats();
   renderConditionBuilder();
   connectWS();
 })();

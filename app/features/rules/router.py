@@ -32,6 +32,26 @@ def list_rules():
     )
 
 
+@router.get("/dashboard")
+def dashboard_stats():
+    return _handle(
+        lambda: success(
+            data=service.get_dashboard_stats(),
+            message="Dashboard stats",
+        )
+    )
+
+
+@router.get("/form-options")
+def form_options():
+    return _handle(
+        lambda: success(
+            data=service.get_form_options(),
+            message="Form options",
+        )
+    )
+
+
 @router.get("/engines")
 def list_engines():
     return _handle(

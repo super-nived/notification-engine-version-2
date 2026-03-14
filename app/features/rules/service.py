@@ -135,6 +135,45 @@ def get_engine_registry() -> dict:
     return get_engine_registry_dict()
 
 
+def get_dashboard_stats() -> dict:
+    """Return dynamic dashboard stats."""
+    try:
+        active = repo.count_active_rules()
+        total_today = repo.count_executions_today()
+        failed_today = repo.count_executions_today(status="error")
+    except Exception as exc:
+        logger.error("Failed to get dashboard stats: %s", exc)
+        raise ServiceError("Could not fetch dashboard stats.")
+
+    return {
+        "active_rules": active,
+        "total_executions_today": total_today,
+        "failed_executions_today": failed_today,
+    }
+
+
+def get_form_options() -> dict:
+    """Return dynamic options for rule creation form."""
+    engines = get_engine_registry_dict()
+    return {
+        "engines": list(engines.keys()),
+        "engine_params": engines,
+        "frequencies": _get_frequency_options(engines),
+        "channels": ["In-App", "Email", "Both"],
+    }
+
+
+def _get_frequency_options(engines: dict) -> list[str]:
+    """Build frequency list from engine configs."""
+    return [
+        "As It Occurs",
+        "Every 1 Minute",
+        "Hourly",
+        "Daily",
+        "Weekly",
+    ]
+
+
 # ── Validation ───────────────────────────────────────────────
 
 

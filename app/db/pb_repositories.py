@@ -225,3 +225,29 @@ def get_execution_logs(rule_name: str | None = None) -> list[dict]:
         filter_str=f,
         sort="-started_at",
     )
+
+
+def count_active_rules() -> int:
+    """Count enabled rules."""
+    data = pb_list(
+        RULES_COLLECTION,
+        page=1,
+        per_page=1,
+        filter_str="enabled=true",
+    )
+    return data.get("totalItems", 0)
+
+
+def count_executions_today(status: str | None = None) -> int:
+    """Count execution logs from today, optionally filtered by status."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d 00:00:00.000Z")
+    f = f'started_at>="{today}"'
+    if status:
+        f += f' && status="{status}"'
+    data = pb_list(
+        EXECUTION_LOGS_COLLECTION,
+        page=1,
+        per_page=1,
+        filter_str=f,
+    )
+    return data.get("totalItems", 0)
