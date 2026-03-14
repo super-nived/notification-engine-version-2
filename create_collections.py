@@ -126,6 +126,11 @@ COLLECTIONS = [
                 "required": False,
                 "options": {"min": None, "max": 20},
             },
+            {
+                "name": "next_run_at",
+                "type": "date",
+                "required": False,
+            },
         ],
     },
     {

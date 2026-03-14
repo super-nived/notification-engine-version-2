@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from app.db.pb_client import authenticate
 from app.db.pb_repositories import get_enabled_rules
 from app.engine.registry import load_all_plugins, rule_is_as_it_occurs
-from app.engine.scheduler import Dispatcher
+from app.engine.scheduler import create_dispatcher
 from app.engine.sse_listener import SSEListener
 from app.features.rules.service import set_dispatcher, set_sse_listener
 from app.notifiers.inapp_notifier import set_websocket_manager
@@ -20,16 +20,18 @@ from app.notifiers.websocket_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
-dispatcher = Dispatcher()
+dispatcher = None
 sse_listener = SSEListener()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global dispatcher
     _configure_logging()
     load_all_plugins()
 
     _authenticate()
+    dispatcher = create_dispatcher()
     _wire_dependencies()
     _load_sse_rules()
 

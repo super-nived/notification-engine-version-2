@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
 
-    SCHEDULE_ROLLING_WINDOW_HOURS: int = 24
+    # Scheduler mode: "next_run" (default) or "schedule_records"
+    SCHEDULER_MODE: str = "next_run"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

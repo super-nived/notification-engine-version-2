@@ -2,6 +2,7 @@
 
 Orchestrates rule CRUD with dispatcher/SSE routing.
 No business logic in routers — all logic lives here.
+Dispatcher interface is the same for both modes (next_run / schedule_records).
 """
 
 import logging
@@ -14,7 +15,6 @@ from app.engine.registry import (
     rule_is_as_it_occurs,
     rule_is_scheduled,
 )
-from app.engine.schedule_generator import generate_schedules
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ def get_rule(rule_id: str) -> dict:
     except Exception as exc:
         logger.error("Failed to get rule %s: %s", rule_id, exc)
         raise ServiceError(
-            f"Rule not found or could not be retrieved.",
+            "Rule not found or could not be retrieved.",
             status_code=404,
         )
 
@@ -103,9 +103,9 @@ def toggle_rule(rule_id: str, enabled: bool) -> dict:
         raise ServiceError("Could not toggle rule.")
 
     if enabled:
-        _route_new_rule(rule)
+        _route_rule_enabled(rule)
     else:
-        _unroute_current_rule(rule)
+        _route_rule_disabled(rule)
 
     return rule
 
@@ -113,7 +113,7 @@ def toggle_rule(rule_id: str, enabled: bool) -> dict:
 def delete_rule(rule_id: str) -> None:
     """Delete a rule and clean up routing."""
     rule = get_rule(rule_id)
-    _unroute_current_rule(rule)
+    _route_rule_deleted(rule)
 
     try:
         repo.delete_rule(rule_id)
@@ -144,8 +144,10 @@ def get_engine_registry() -> dict:
     return get_engine_registry_dict()
 
 
+# ── Validation ───────────────────────────────────────────────
+
+
 def _validate_engine(engine_name: str) -> None:
-    """Raise ServiceError if engine doesn't exist."""
     try:
         get_engine(engine_name)
     except ValueError:
@@ -156,7 +158,6 @@ def _validate_engine(engine_name: str) -> None:
 
 
 def _apply_default_params(data: dict) -> None:
-    """Fill in default params if not provided."""
     if data.get("params"):
         return
     try:
@@ -165,12 +166,15 @@ def _apply_default_params(data: dict) -> None:
         data["params"] = {}
 
 
+# ── Routing (uses dispatcher's common interface) ─────────────
+
+
 def _route_new_rule(rule: dict) -> None:
-    """Register rule with SSE listener or generate schedules."""
+    """Route a newly created or updated rule."""
     if rule_is_as_it_occurs(rule):
         _register_sse(rule)
     elif rule_is_scheduled(rule):
-        _generate_and_wake(rule)
+        _dispatcher_action("on_rule_created", rule)
 
 
 def _unroute_old_rule(old_rule: dict) -> None:
@@ -178,15 +182,28 @@ def _unroute_old_rule(old_rule: dict) -> None:
     if rule_is_as_it_occurs(old_rule):
         _unregister_sse(old_rule)
     elif rule_is_scheduled(old_rule):
-        _delete_old_schedules(old_rule["id"])
+        _dispatcher_action("on_rule_updated", old_rule)
 
 
-def _unroute_current_rule(rule: dict) -> None:
-    """Remove current routing when disabling/deleting."""
+def _route_rule_enabled(rule: dict) -> None:
+    if rule_is_as_it_occurs(rule):
+        _register_sse(rule)
+    elif rule_is_scheduled(rule):
+        _dispatcher_action("on_rule_enabled", rule)
+
+
+def _route_rule_disabled(rule: dict) -> None:
     if rule_is_as_it_occurs(rule):
         _unregister_sse(rule)
     elif rule_is_scheduled(rule):
-        _skip_pending_schedules(rule["id"])
+        _dispatcher_action("on_rule_disabled", rule)
+
+
+def _route_rule_deleted(rule: dict) -> None:
+    if rule_is_as_it_occurs(rule):
+        _unregister_sse(rule)
+    elif rule_is_scheduled(rule):
+        _dispatcher_action("on_rule_deleted", rule)
 
 
 def _register_sse(rule: dict) -> None:
@@ -198,33 +215,16 @@ def _register_sse(rule: dict) -> None:
 def _unregister_sse(rule: dict) -> None:
     if _sse_listener:
         _sse_listener.remove_rule(rule)
-        logger.info(
-            "Rule '%s' removed from SSE", rule.get("name", "")
-        )
+        logger.info("Rule '%s' removed from SSE", rule.get("name", ""))
 
 
-def _generate_and_wake(rule: dict) -> None:
-    try:
-        generate_schedules(rule)
-    except Exception as exc:
-        logger.error("Schedule generation failed: %s", exc)
-
-    if _dispatcher:
-        _dispatcher.wake()
-        logger.info(
-            "Schedules generated for '%s'", rule.get("name", "")
-        )
-
-
-def _delete_old_schedules(rule_id: str) -> None:
-    try:
-        repo.delete_schedules_for_rule(rule_id)
-    except Exception as exc:
-        logger.error("Failed to delete old schedules: %s", exc)
-
-
-def _skip_pending_schedules(rule_id: str) -> None:
-    try:
-        repo.skip_pending_schedules_for_rule(rule_id)
-    except Exception as exc:
-        logger.error("Failed to skip schedules: %s", exc)
+def _dispatcher_action(method: str, rule: dict) -> None:
+    """Call a dispatcher method by name, safely."""
+    if not _dispatcher:
+        return
+    fn = getattr(_dispatcher, method, None)
+    if fn:
+        try:
+            fn(rule)
+        except Exception as exc:
+            logger.error("Dispatcher.%s failed: %s", method, exc)

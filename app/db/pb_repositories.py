@@ -1,3 +1,8 @@
+"""Domain-level CRUD for rules, schedules, execution_logs.
+
+All PocketBase access goes through pb_client.py.
+"""
+
 import json
 import logging
 from datetime import datetime, timezone
@@ -16,7 +21,6 @@ logger = logging.getLogger(__name__)
 RULES_COLLECTION = "rules"
 SCHEDULES_COLLECTION = "schedules"
 EXECUTION_LOGS_COLLECTION = "execution_logs"
-DATASOURCES_COLLECTION = "datasources"
 
 
 # ── Domain mapping ────────────────────────────────────────────
@@ -38,6 +42,7 @@ def _rule_to_domain(record: dict) -> dict:
         "state": _parse_json_field(record.get("state", "{}")),
         "last_run_at": record.get("last_run_at"),
         "last_status": record.get("last_status", ""),
+        "next_run_at": record.get("next_run_at"),
         "created": record.get("created", ""),
     }
 
@@ -89,7 +94,13 @@ def get_rule_by_id(rule_id: str) -> dict:
 
 
 def create_rule(data: dict) -> dict:
-    payload = {
+    payload = _build_create_payload(data)
+    record = pb_create(RULES_COLLECTION, payload)
+    return _rule_to_domain(record)
+
+
+def _build_create_payload(data: dict) -> dict:
+    return {
         "name": data["name"],
         "engine": data["engine"],
         "frequency": data.get("frequency", "As It Occurs"),
@@ -102,33 +113,35 @@ def create_rule(data: dict) -> dict:
         "state": json.dumps({}),
         "last_run_at": None,
         "last_status": "",
+        "next_run_at": data.get("next_run_at"),
     }
-    record = pb_create(RULES_COLLECTION, payload)
-    return _rule_to_domain(record)
 
 
 def update_rule(rule_id: str, data: dict) -> dict:
+    payload = _build_update_payload(data)
+    record = pb_update(RULES_COLLECTION, rule_id, payload)
+    return _rule_to_domain(record)
+
+
+def _build_update_payload(data: dict) -> dict:
     payload = {}
-    if "name" in data:
-        payload["name"] = data["name"]
-    if "engine" in data:
-        payload["engine"] = data["engine"]
-    if "frequency" in data:
-        payload["frequency"] = data["frequency"]
-    if "channel" in data:
-        payload["channel"] = data["channel"]
+    direct_fields = [
+        "name", "engine", "frequency", "channel",
+        "description", "expiry_date", "enabled",
+        "last_run_at", "last_status", "next_run_at",
+    ]
+    for field in direct_fields:
+        if field in data:
+            payload[field] = data[field]
+
     if "targets" in data:
         payload["targets"] = json.dumps(data["targets"])
     if "params" in data:
         payload["params"] = json.dumps(data["params"])
-    if "description" in data:
-        payload["description"] = data["description"]
-    if "expiry_date" in data:
-        payload["expiry_date"] = data["expiry_date"]
-    if "enabled" in data:
-        payload["enabled"] = data["enabled"]
-    record = pb_update(RULES_COLLECTION, rule_id, payload)
-    return _rule_to_domain(record)
+    if "state" in data:
+        payload["state"] = json.dumps(data["state"])
+
+    return payload
 
 
 def delete_rule(rule_id: str) -> None:
@@ -154,6 +167,17 @@ def update_rule_last_run(
     )
 
 
+def update_rule_next_run(
+    rule_id: str, next_run_at: str
+) -> None:
+    """Update the next_run_at field on a rule."""
+    pb_update(
+        RULES_COLLECTION,
+        rule_id,
+        {"next_run_at": next_run_at},
+    )
+
+
 def disable_rule(rule_id: str) -> dict:
     record = pb_update(
         RULES_COLLECTION, rule_id, {"enabled": False}
@@ -161,7 +185,44 @@ def disable_rule(rule_id: str) -> dict:
     return _rule_to_domain(record)
 
 
-# ── Schedules CRUD ────────────────────────────────────────────
+# ── Rules: next_run queries (for next_run mode) ─────────────
+
+
+def get_next_due_rule() -> dict | None:
+    """Get the earliest enabled rule with next_run_at."""
+    now_iso = datetime.now(timezone.utc).strftime(
+        "%Y-%m-%d %H:%M:%S.000Z"
+    )
+    data = pb_list(
+        RULES_COLLECTION,
+        page=1,
+        per_page=1,
+        filter_str=(
+            'enabled=true && next_run_at!="" '
+            '&& next_run_at!=""'
+        ),
+        sort="next_run_at",
+    )
+    items = data.get("items", [])
+    if items:
+        return _rule_to_domain(items[0])
+    return None
+
+
+def get_due_rules(before_iso: str) -> list[dict]:
+    """Get all enabled rules with next_run_at <= before_iso."""
+    records = pb_get_full_list(
+        RULES_COLLECTION,
+        filter_str=(
+            f'enabled=true && next_run_at<="{before_iso}" '
+            f'&& next_run_at!=""'
+        ),
+        sort="next_run_at",
+    )
+    return [_rule_to_domain(r) for r in records]
+
+
+# ── Schedules CRUD (for schedule_records mode) ───────────────
 
 
 def create_schedule(data: dict) -> dict:
@@ -176,20 +237,6 @@ def create_schedule(data: dict) -> dict:
     }
     record = pb_create(SCHEDULES_COLLECTION, payload)
     return _schedule_to_domain(record)
-
-
-def get_pending_schedules(
-    before: str | None = None,
-) -> list[dict]:
-    f = 'status="pending"'
-    if before:
-        f += f' && scheduled_at<="{before}"'
-    records = pb_get_full_list(
-        SCHEDULES_COLLECTION,
-        filter_str=f,
-        sort="scheduled_at",
-    )
-    return [_schedule_to_domain(r) for r in records]
 
 
 def get_next_pending_schedule() -> dict | None:
@@ -207,7 +254,13 @@ def get_next_pending_schedule() -> dict | None:
 
 
 def get_due_schedules(before_iso: str) -> list[dict]:
-    return get_pending_schedules(before=before_iso)
+    f = f'status="pending" && scheduled_at<="{before_iso}"'
+    records = pb_get_full_list(
+        SCHEDULES_COLLECTION,
+        filter_str=f,
+        sort="scheduled_at",
+    )
+    return [_schedule_to_domain(r) for r in records]
 
 
 def mark_schedule_running(schedule_id: str) -> None:
@@ -318,17 +371,4 @@ def get_execution_logs(
         EXECUTION_LOGS_COLLECTION,
         filter_str=f,
         sort="-started_at",
-    )
-
-
-# ── Datasources ──────────────────────────────────────────────
-
-
-def get_datasource_records(
-    collection: str,
-    filter_str: str = "",
-    sort: str = "",
-) -> list[dict]:
-    return pb_get_full_list(
-        collection, filter_str=filter_str, sort=sort
     )
