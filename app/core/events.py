@@ -49,6 +49,9 @@ def _configure_logging():
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
+    logging.getLogger("app.engine.sse_listener").setLevel(
+        logging.DEBUG
+    )
 
 
 def _authenticate():

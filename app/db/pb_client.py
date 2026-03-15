@@ -156,4 +156,6 @@ def pb_sse_subscribe(client_id: str, subscriptions: list[str]):
         timeout=10,
     )
     resp.raise_for_status()
+    if resp.status_code == 204:
+        return {}
     return resp.json()

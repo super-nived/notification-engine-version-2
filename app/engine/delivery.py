@@ -12,7 +12,17 @@ logger = logging.getLogger(__name__)
 
 def deliver(rule: dict, events: list[dict]) -> None:
     """Send events through all matching notifier plugins."""
+    logger.info(
+        "Delivering %d event(s) for rule '%s' (channel=%s)",
+        len(events),
+        rule.get("name", ""),
+        rule.get("channel", ""),
+    )
     notifiers = get_notifiers_for_rule(rule)
+    logger.info(
+        "Matched notifiers: %s",
+        [n.channel_name for n in notifiers],
+    )
     if not notifiers:
         logger.warning(
             "No notifiers found for channel '%s'",

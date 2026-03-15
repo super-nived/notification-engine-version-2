@@ -958,6 +958,14 @@ async function saveRule() {
   const name = document.getElementById('f-name').value.trim();
   if (!name) { toast('Rule name is required'); return; }
 
+  // Auto-add any typed but un-submitted target
+  const targetInput = document.getElementById('target-text');
+  console.log('[Debug] target input value:', JSON.stringify(targetInput.value));
+  console.log('[Debug] selectedTargets before:', JSON.stringify(selectedTargets));
+  const pendingTarget = targetInput.value.trim();
+  if (pendingTarget) { addTarget(pendingTarget); }
+  console.log('[Debug] selectedTargets after:', JSON.stringify(selectedTargets));
+
   const payload = {
     name: name,
     engine: document.getElementById('f-engine').value,
@@ -968,6 +976,7 @@ async function saveRule() {
     params: collectParams(),
     expiry_date: document.getElementById('f-expiry').value || null,
   };
+  console.log('[SaveRule] payload:', JSON.stringify(payload, null, 2));
 
   const idx = document.getElementById('edit-index').value;
   try {
@@ -1093,7 +1102,9 @@ let ws = null;
 function connectWS() {
   try {
     ws = new WebSocket(WS_URL);
+    ws.onopen = function() { console.log('[WS] Connected'); };
     ws.onmessage = function(evt) {
+      console.log('[WS] Message received:', evt.data);
       try {
         const event = JSON.parse(evt.data);
         toast((event.rule_name || 'Rule') + ': ' + (event.message || 'Event triggered'));
@@ -1106,7 +1117,7 @@ function connectWS() {
         if (document.getElementById('page-log').classList.contains('active')) {
           renderLog();
         }
-      } catch (e) { /* ignore */ }
+      } catch (e) { console.error('[WS] Parse error:', e); }
     };
     ws.onclose = function() { setTimeout(connectWS, 3000); };
     ws.onerror = function() { /* reconnect via onclose */ };

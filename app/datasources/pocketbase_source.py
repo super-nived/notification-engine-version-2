@@ -23,6 +23,7 @@ class PocketBaseSource(BaseDataSource):
         collection: str,
         filter_str: str = "",
         sort: str = "",
+        expand: str = "",
     ) -> list[dict]:
         """Fetch all records from a PocketBase collection."""
         try:
@@ -30,6 +31,7 @@ class PocketBaseSource(BaseDataSource):
                 collection,
                 filter_str=filter_str,
                 sort=sort,
+                expand=expand,
             )
         except Exception as exc:
             logger.error(

@@ -16,6 +16,14 @@ OPS = {
     "gte": lambda a, b: float(a) >= float(b),
 }
 
+OP_LABELS = {
+    "lt": "below",
+    "gt": "above",
+    "eq": "equal to",
+    "lte": "at or below",
+    "gte": "at or above",
+}
+
 
 class ThresholdBreachEngine(BaseEngine):
 
@@ -28,8 +36,8 @@ class ThresholdBreachEngine(BaseEngine):
         return (
             "Checks the latest record's numeric field against a "
             "fixed limit. Alerts once when the value crosses the "
-            "threshold. Resets automatically when the value recovers "
-            "— so it won't spam alerts every cycle."
+            "threshold. Resets automatically when the value "
+            "recovers — so it won't spam alerts every cycle."
         )
 
     @property
@@ -37,16 +45,20 @@ class ThresholdBreachEngine(BaseEngine):
         return [
             "Alert when OEE drops below 60%",
             "Alert when machine temperature exceeds 90°C",
-            "Alert when production count falls below target (e.g. < 100 units)",
+            "Alert when production count falls below target "
+            "(e.g. < 100 units)",
             "Alert when error rate goes above 5%",
         ]
 
     @property
     def example(self) -> str:
         return (
-            "Metric to monitor = OEE · Alert when value is = Less than · Threshold value = 60\n"
+            "Metric to monitor = OEE · "
+            "Alert when value is = Less than · "
+            "Threshold value = 60\n"
             "→ You get one alert when OEE falls below 60. "
-            "Automatically clears when it recovers. No duplicate alerts."
+            "Automatically clears when it recovers. "
+            "No duplicate alerts."
         )
 
     @property
@@ -74,8 +86,14 @@ class ThresholdBreachEngine(BaseEngine):
                     {"value": "lt", "label": "Less than"},
                     {"value": "gt", "label": "Greater than"},
                     {"value": "eq", "label": "Equal to"},
-                    {"value": "lte", "label": "Less than or equal"},
-                    {"value": "gte", "label": "Greater than or equal"},
+                    {
+                        "value": "lte",
+                        "label": "Less than or equal",
+                    },
+                    {
+                        "value": "gte",
+                        "label": "Greater than or equal",
+                    },
                 ],
                 "default": "lt",
             },
@@ -97,7 +115,9 @@ class ThresholdBreachEngine(BaseEngine):
         records = fetch_records(
             self.collection, filter_str="", sort="-created"
         )
-        return self._filter_breaches(rule, records, field, op, value)
+        return self._filter_breaches(
+            rule, records, field, op, value
+        )
 
     def evaluate(self, rule: dict, record: dict) -> list[dict]:
         """Check a single SSE record against threshold."""
@@ -110,7 +130,7 @@ class ThresholdBreachEngine(BaseEngine):
         if record_val is None:
             return []
         if _check_op(op, record_val, value):
-            return [_make_event(rule, record)]
+            return [_make_event(rule, record, field, op, value)]
         return []
 
     def _filter_breaches(
@@ -122,7 +142,9 @@ class ThresholdBreachEngine(BaseEngine):
             if rec_val is None:
                 continue
             if _check_op(op, rec_val, value):
-                events.append(_make_event(rule, rec))
+                events.append(
+                    _make_event(rule, rec, field, op, value)
+                )
         return events
 
 
@@ -136,17 +158,27 @@ def _check_op(op: str, actual, threshold) -> bool:
         return False
 
 
-def _make_event(rule: dict, record: dict) -> dict:
+def _make_event(
+    rule: dict, record: dict, field: str, op: str, threshold
+) -> dict:
+    actual_val = record.get(field, "N/A")
+    field_label = field.replace("_", " ").upper()
+    op_label = OP_LABELS.get(op, op)
+
     return {
         "rule_name": rule.get("name", ""),
         "rule_id": rule.get("id", ""),
-        "engine": rule.get("engine", ""),
+        "engine": "Threshold Breach",
         "record_id": record.get("id", ""),
-        "record": record,
+        "created": record.get("created", ""),
+        "data": {
+            "Metric": field_label,
+            "Current Value": str(actual_val),
+            "Threshold": f"{op_label} {threshold}",
+        },
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "message": (
-            f"[{rule.get('engine', '')}] Rule "
-            f"'{rule.get('name', '')}' triggered on "
-            f"record {record.get('id', 'N/A')}"
+            f"{field_label} is {actual_val} — "
+            f"crossed the threshold ({op_label} {threshold})"
         ),
     }

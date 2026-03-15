@@ -8,9 +8,8 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
+from queue import Queue
 from threading import Thread
-
-import sseclient
 
 from app.db.pb_client import pb_sse_connect, pb_sse_subscribe
 from app.db.pb_repositories import (
@@ -134,12 +133,25 @@ def _get_collection(rule: dict) -> str:
 
 
 def _sse_loop(listener: SSEListener, collection: str):
-    """Single SSE connection lifecycle."""
-    resp = pb_sse_connect()
-    client = sseclient.SSEClient(resp)
+    """Single SSE connection lifecycle.
 
-    client_id = _get_client_id(client, listener)
+    Uses a background thread to keep reading the SSE stream
+    while the subscribe POST is sent, preventing client ID
+    expiration.
+    """
+    resp = pb_sse_connect()
+    event_queue: Queue = Queue()
+
+    reader = Thread(
+        target=_read_events,
+        args=(resp, event_queue),
+        daemon=True,
+    )
+    reader.start()
+
+    client_id = _wait_for_client_id(event_queue, listener)
     if not client_id:
+        resp.close()
         raise RuntimeError("Failed to get SSE client ID")
 
     pb_sse_subscribe(client_id, [f"{collection}/*"])
@@ -149,13 +161,69 @@ def _sse_loop(listener: SSEListener, collection: str):
         client_id,
     )
 
-    _process_events(listener, client, collection)
+    _process_events(listener, event_queue, collection)
+    resp.close()
 
 
-def _get_client_id(client, listener: SSEListener) -> str | None:
-    for event in client.events():
-        if not listener._running:
+def _read_events(resp, event_queue: Queue):
+    """Read SSE events in background, push to queue.
+
+    Uses iter_content instead of sseclient to avoid
+    blocking issues with PocketBase's SSE stream.
+    """
+    buf = ""
+    try:
+        for chunk in resp.iter_content(
+            chunk_size=4096, decode_unicode=True
+        ):
+            logger.debug("SSE raw chunk: %r", chunk[:200])
+            buf += chunk
+            while "\n\n" in buf:
+                raw, buf = buf.split("\n\n", 1)
+                logger.debug("SSE parsed block: %r", raw[:200])
+                event = _parse_raw_sse(raw)
+                if event:
+                    logger.debug(
+                        "SSE event: type=%s", event.event
+                    )
+                    event_queue.put(event)
+    except Exception as exc:
+        logger.warning("SSE reader stopped: %s", exc)
+    event_queue.put(None)
+
+
+def _parse_raw_sse(raw: str) -> dict | None:
+    """Parse a raw SSE block into {event, data}."""
+    result = {}
+    for line in raw.strip().split("\n"):
+        if line.startswith("event:"):
+            result["event"] = line[6:].strip()
+        elif line.startswith("data:"):
+            result["data"] = line[5:].strip()
+    if result.get("event"):
+        return type("SSEEvent", (), result)()
+    return None
+
+
+def _wait_for_client_id(
+    event_queue: Queue, listener: SSEListener
+) -> str | None:
+    """Wait for PB_CONNECT event to get client ID."""
+    from queue import Empty
+
+    while listener._running:
+        try:
+            event = event_queue.get(timeout=10)
+        except Empty:
+            logger.warning("Timeout waiting for SSE client ID")
             return None
+        if event is None:
+            logger.warning("SSE stream closed before client ID")
+            return None
+        logger.debug(
+            "SSE waiting for PB_CONNECT, got: %s",
+            event.event,
+        )
         if event.event == "PB_CONNECT":
             data = json.loads(event.data)
             return data.get("clientId")
@@ -163,15 +231,24 @@ def _get_client_id(client, listener: SSEListener) -> str | None:
 
 
 def _process_events(
-    listener: SSEListener, client, collection: str
+    listener: SSEListener,
+    event_queue: Queue,
+    collection: str,
 ):
-    for event in client.events():
-        if not listener._running:
-            return
+    """Process events from the queue."""
+    while listener._running:
         if collection not in listener._subscriptions:
             return
 
-        if event.event != collection:
+        try:
+            event = event_queue.get(timeout=5)
+        except Exception:
+            continue
+
+        if event is None:
+            raise RuntimeError("SSE stream closed")
+
+        if not event.event.startswith(collection):
             continue
 
         record = _parse_create_event(event)

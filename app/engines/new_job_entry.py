@@ -38,14 +38,15 @@ class NewJobEntryEngine(BaseEngine):
     @property
     def example(self) -> str:
         return (
-            "Job status must be = Released · Customer approved must be = YES\n"
+            "Job status must be = Released · "
+            "Customer approved must be = YES\n"
             "→ You get an alert the moment a new job with "
             "these values is created. Instant, no delay."
         )
 
     @property
     def collection(self) -> str:
-        return "job_details"
+        return "OCCDUBAI01_jobDetails"
 
     @property
     def condition_type(self) -> str:
@@ -74,9 +75,13 @@ class NewJobEntryEngine(BaseEngine):
         state = rule.get("state", {})
         last_seen = state.get("last_seen", "")
 
-        filter_str = f'created > "{last_seen}"' if last_seen else ""
+        filter_str = (
+            f'created > "{last_seen}"' if last_seen else ""
+        )
         records = fetch_records(
-            self.collection, filter_str=filter_str, sort="created"
+            self.collection,
+            filter_str=filter_str,
+            sort="created",
         )
         return _match_and_collect(rule, records, params)
 
@@ -98,7 +103,9 @@ def _match_and_collect(
     return events
 
 
-def _record_matches_params(record: dict, params: dict) -> bool:
+def _record_matches_params(
+    record: dict, params: dict
+) -> bool:
     """Params like 'jobStatus_value' match field 'jobStatus'."""
     for key, expected in params.items():
         if not key.endswith("_value"):
@@ -111,16 +118,42 @@ def _record_matches_params(record: dict, params: dict) -> bool:
 
 
 def _make_event(rule: dict, record: dict) -> dict:
+    display = _build_display_data(record)
+
     return {
         "rule_name": rule.get("name", ""),
         "rule_id": rule.get("id", ""),
-        "engine": rule.get("engine", ""),
+        "engine": "New Job Entry",
         "record_id": record.get("id", ""),
-        "record": record,
+        "created": record.get("created", ""),
+        "data": display,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "message": (
-            f"[{rule.get('engine', '')}] Rule "
-            f"'{rule.get('name', '')}' triggered on "
-            f"record {record.get('id', 'N/A')}"
+            f"New job entry — "
+            f"Status: {display.get('Job Status', 'N/A')}, "
+            f"Customer Approved: "
+            f"{display.get('Customer Approved', 'N/A')}"
         ),
     }
+
+
+def _build_display_data(record: dict) -> dict:
+    """Convert raw record to user-friendly display fields."""
+    display = {}
+
+    field_map = {
+        "jobName": "Job Name",
+        "jobNumber": "Job Number",
+        "jobStatus": "Job Status",
+        "customerApproved": "Customer Approved",
+        "displayName": "Display Name",
+        "workCenter": "Work Center",
+        "status": "Status",
+    }
+
+    for key, label in field_map.items():
+        val = record.get(key)
+        if val is not None and val != "":
+            display[label] = str(val)
+
+    return display

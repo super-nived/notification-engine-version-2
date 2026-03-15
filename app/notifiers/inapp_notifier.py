@@ -29,9 +29,21 @@ class InAppNotifier(BaseNotifier):
             logger.warning("WebSocket manager not set")
             return
 
+        logger.info(
+            "In-App sending %d event(s) for '%s'",
+            len(events),
+            rule.get("name", ""),
+        )
         for event in events:
             try:
-                _websocket_manager.broadcast(event)
+                payload = {
+                    "rule_name": rule.get("name", ""),
+                    "engine": rule.get("engine", ""),
+                    "message": event.get("message", ""),
+                    "data": event.get("data", {}),
+                    "timestamp": event.get("timestamp", ""),
+                }
+                _websocket_manager.broadcast(payload)
             except Exception as exc:
                 logger.error(
                     "WebSocket broadcast failed: %s", exc

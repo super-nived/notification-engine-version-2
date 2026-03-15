@@ -34,5 +34,5 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         while True:
             await ws.receive_text()
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, Exception):
         ws_manager.disconnect(ws)

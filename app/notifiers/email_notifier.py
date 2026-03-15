@@ -1,16 +1,18 @@
 """Email Notifier — standalone plugin.
 
-Sends email notifications via SMTP to rule targets.
+Sends professional HTML email notifications via SMTP.
 Runs in a background thread to avoid blocking.
 """
 
 import logging
 import smtplib
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from threading import Thread
 
 from app.core.base_notifier import BaseNotifier
 from app.core.settings import settings
+from app.notifiers.email_template import build_html, build_plain_text
 
 logger = logging.getLogger(__name__)
 
@@ -42,23 +44,24 @@ def _extract_email_targets(rule: dict) -> list[str]:
 def _send_all(
     rule: dict, events: list[dict], targets: list[str]
 ) -> None:
-    for target in targets:
-        try:
-            _send_one(target, rule, events)
-        except Exception as exc:
-            logger.error(
-                "Email to %s failed: %s", target, exc
-            )
+    for event in events:
+        for target in targets:
+            try:
+                _send_one(target, rule, event)
+            except Exception as exc:
+                logger.error(
+                    "Email to %s failed: %s", target, exc
+                )
 
 
 def _send_one(
-    to: str, rule: dict, events: list[dict]
+    to: str, rule: dict, event: dict
 ) -> None:
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         logger.warning("SMTP not configured, skipping %s", to)
         return
 
-    msg = _build_message(to, rule, events)
+    msg = _build_message(to, rule, event)
     _smtp_send(to, msg)
     logger.info(
         "Email sent to %s for rule '%s'",
@@ -68,34 +71,28 @@ def _send_one(
 
 
 def _build_message(
-    to: str, rule: dict, events: list[dict]
-) -> MIMEText:
-    subject = (
-        f"[Notification] {rule.get('name', '')} "
-        f"- {len(events)} event(s)"
-    )
-    body_lines = [
-        f"Rule: {rule.get('name', '')}",
-        f"Engine: {rule.get('engine', '')}",
-        f"Events: {len(events)}",
-        "",
-    ]
-    for i, ev in enumerate(events, 1):
-        body_lines.append(f"--- Event {i} ---")
-        body_lines.append(ev.get("message", ""))
-        body_lines.append("")
+    to: str, rule: dict, event: dict
+) -> MIMEMultipart:
+    message = event.get("message", "")
+    subject = f"[Alert] {rule.get('name', '')} — {message}"
 
-    msg = MIMEText("\n".join(body_lines))
-    msg["Subject"] = subject
-    msg["From"] = settings.SMTP_USER
+    msg = MIMEMultipart("alternative")
+    msg["From"] = settings.EMAIL_FROM or settings.SMTP_USER
     msg["To"] = to
+    msg["Subject"] = subject
+
+    msg.attach(
+        MIMEText(build_plain_text(rule, event), "plain")
+    )
+    msg.attach(MIMEText(build_html(rule, event), "html"))
     return msg
 
 
-def _smtp_send(to: str, msg: MIMEText) -> None:
+def _smtp_send(to: str, msg: MIMEMultipart) -> None:
     with smtplib.SMTP(
         settings.SMTP_HOST, settings.SMTP_PORT
     ) as smtp:
-        smtp.starttls()
+        if settings.SMTP_TLS:
+            smtp.starttls()
         smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
         smtp.send_message(msg)

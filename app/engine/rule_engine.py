@@ -67,8 +67,7 @@ def _find_latest_timestamp(events: list[dict]) -> str:
     """Extract the latest 'created' timestamp from events."""
     latest = ""
     for ev in events:
-        record = ev.get("record", {})
-        created = record.get("created", "")
+        created = ev.get("created", "")
         if created > latest:
             latest = created
     return latest
