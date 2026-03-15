@@ -5,7 +5,6 @@ evaluate() = SSE mode (evaluates a single incoming record)
 """
 
 import logging
-from datetime import datetime, timezone
 
 from app.engine.registry import get_datasource, get_engine
 
@@ -56,35 +55,45 @@ def _update_state_if_needed(
     if not events:
         return
 
-    latest = _find_latest_timestamp(events)
+    latest = _find_latest_created(events)
     if not latest:
+        logger.warning(
+            "No 'created' field in events for '%s' — "
+            "state not updated",
+            rule.get("name", ""),
+        )
         return
 
     _persist_state(rule, latest)
 
 
-def _find_latest_timestamp(events: list[dict]) -> str:
+def _find_latest_created(events: list[dict]) -> str:
     """Extract the latest 'created' timestamp from events."""
     latest = ""
     for ev in events:
         created = ev.get("created", "")
-        if created > latest:
+        if created and created > latest:
             latest = created
     return latest
 
 
-def _persist_state(rule: dict, latest_ts: str) -> None:
-    """Save updated state back to the database."""
+def _persist_state(rule: dict, latest_created: str) -> None:
+    """Save updated last_seen back to the database."""
     from app.db.pb_repositories import update_rule_state
 
     state = rule.get("state", {})
     old_seen = state.get("last_seen", "")
-    if latest_ts <= old_seen:
+    if latest_created <= old_seen:
         return
 
-    new_state = {**state, "last_seen": latest_ts}
+    new_state = {**state, "last_seen": latest_created}
     try:
         update_rule_state(rule["id"], new_state)
+        logger.info(
+            "State updated for '%s': last_seen=%s",
+            rule.get("name", ""),
+            latest_created,
+        )
     except Exception as exc:
         logger.warning(
             "Failed to update state for '%s': %s",
