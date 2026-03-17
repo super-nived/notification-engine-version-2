@@ -170,14 +170,29 @@ def build_summary_html(
     )
 
 
+_MAX_EVENTS_IN_EMAIL = 50
+
+
 def _build_events_section(events: list[dict]) -> str:
     """Build HTML for all events in the summary."""
     if len(events) == 1:
         return _build_single_event(events[0])
 
+    total = len(events)
+    capped = events[:_MAX_EVENTS_IN_EMAIL]
     html = ""
-    for i, event in enumerate(events, 1):
+    for i, event in enumerate(capped, 1):
         html += _build_numbered_event(i, event)
+
+    if total > _MAX_EVENTS_IN_EMAIL:
+        html += (
+            '<div style="margin-top:12px;padding:10px 16px;'
+            "text-align:center;font-size:12px;color:#6b7280;"
+            'background:#f9fafb;border-radius:6px">'
+            f"... and {total - _MAX_EVENTS_IN_EMAIL} more event(s) "
+            f"({total} total)"
+            "</div>"
+        )
     return html
 
 

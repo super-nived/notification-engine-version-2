@@ -106,18 +106,25 @@ class ThresholdBreachEngine(BaseEngine):
         ]
 
     def detect(self, rule: dict, fetch_records) -> list[dict]:
-        """Fetch all records and check threshold."""
+        """Fetch latest record and check threshold."""
         params = rule.get("params", {})
         field = params.get("condition_field", "oee")
         op = params.get("condition_op", "lt")
         value = params.get("condition_value", 65)
 
         records = fetch_records(
-            self.collection, filter_str="", sort="-created"
+            self.collection, filter_str="", sort="-created",
+            limit=1,
         )
-        return self._filter_breaches(
-            rule, records, field, op, value
-        )
+        if not records:
+            return []
+        latest = records[0]
+        rec_val = latest.get(field)
+        if rec_val is None:
+            return []
+        if _check_op(op, rec_val, value):
+            return [_make_event(rule, latest, field, op, value)]
+        return []
 
     def evaluate(self, rule: dict, record: dict) -> list[dict]:
         """Check a single SSE record against threshold."""
@@ -132,20 +139,6 @@ class ThresholdBreachEngine(BaseEngine):
         if _check_op(op, record_val, value):
             return [_make_event(rule, record, field, op, value)]
         return []
-
-    def _filter_breaches(
-        self, rule, records, field, op, value
-    ) -> list[dict]:
-        events = []
-        for rec in records:
-            rec_val = rec.get(field)
-            if rec_val is None:
-                continue
-            if _check_op(op, rec_val, value):
-                events.append(
-                    _make_event(rule, rec, field, op, value)
-                )
-        return events
 
 
 def _check_op(op: str, actual, threshold) -> bool:

@@ -23,6 +23,7 @@ class BaseDataSource(ABC):
         collection: str,
         filter_str: str = "",
         sort: str = "",
+        limit: int = 0,
     ) -> list[dict]:
         """Fetch records from the data source.
 
@@ -30,6 +31,7 @@ class BaseDataSource(ABC):
             collection: Table/collection name
             filter_str: Filter expression
             sort: Sort expression
+            limit: Max records to return (0 = all)
 
         Returns:
             List of record dicts.

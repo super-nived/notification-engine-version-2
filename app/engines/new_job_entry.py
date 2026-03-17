@@ -119,6 +119,8 @@ def _record_matches_params(
 
 def _make_event(rule: dict, record: dict) -> dict:
     display = _build_display_data(record)
+    customer = display.get("Customer Name", "N/A")
+    order_id = display.get("Order ID", "N/A")
 
     return {
         "rule_name": rule.get("name", ""),
@@ -129,10 +131,8 @@ def _make_event(rule: dict, record: dict) -> dict:
         "data": display,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "message": (
-            f"New job entry — "
-            f"Status: {display.get('Job Status', 'N/A')}, "
-            f"Customer Approved: "
-            f"{display.get('Customer Approved', 'N/A')}"
+            f"New job released for {customer} "
+            f"— Order: {order_id}"
         ),
     }
 
@@ -141,14 +141,19 @@ def _build_display_data(record: dict) -> dict:
     """Convert raw record to user-friendly display fields."""
     display = {}
 
+    # Order ID = soNumber - soLineNumber
+    so_number = record.get("soNumber", "")
+    so_line = record.get("soLineNumber", "")
+    if so_number:
+        order_id = f"{so_number} - {so_line}" if so_line else str(so_number)
+        display["Order ID"] = order_id
+
+    # Simple field mappings
     field_map = {
-        "jobName": "Job Name",
-        "jobNumber": "Job Number",
-        "jobStatus": "Job Status",
-        "customerApproved": "Customer Approved",
-        "displayName": "Display Name",
-        "workCenter": "Work Center",
-        "status": "Status",
+        "customerName": "Customer Name",
+        "jobQty": "Order Quantity",
+        "jobCreationDate": "Expected Delivery Date",
+        "productType": "Product Type",
     }
 
     for key, label in field_map.items():
@@ -156,4 +161,21 @@ def _build_display_data(record: dict) -> dict:
         if val is not None and val != "":
             display[label] = str(val)
 
+    # Format the date if present
+    if "Expected Delivery Date" in display:
+        display["Expected Delivery Date"] = _format_date(
+            display["Expected Delivery Date"]
+        )
+
     return display
+
+
+def _format_date(value: str) -> str:
+    """Format ISO date to readable format."""
+    try:
+        dt = datetime.fromisoformat(
+            str(value).replace("Z", "+00:00")
+        )
+        return dt.strftime("%b %d, %Y")
+    except (ValueError, TypeError):
+        return str(value)

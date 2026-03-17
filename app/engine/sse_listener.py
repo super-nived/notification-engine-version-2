@@ -6,6 +6,7 @@ Auto-reconnects with exponential backoff on failure.
 
 import json
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 from queue import Queue
@@ -31,14 +32,17 @@ class SSEListener:
         self._subscriptions: dict[str, list[dict]] = {}
         self._threads: dict[str, Thread] = {}
         self._running = False
+        self._lock = threading.Lock()
 
     def start(self):
         self._running = True
-        for collection in list(self._subscriptions.keys()):
+        with self._lock:
+            collections = list(self._subscriptions.keys())
+        for collection in collections:
             self._start_listener(collection)
         logger.info(
             "SSE Listener started with %d collection(s)",
-            len(self._subscriptions),
+            len(collections),
         )
 
     def stop(self):
@@ -59,36 +63,39 @@ class SSEListener:
     def remove_rule(self, rule: dict):
         """Unregister a rule, stop listener if empty."""
         collection = _get_collection(rule)
-        if collection not in self._subscriptions:
-            return
+        with self._lock:
+            if collection not in self._subscriptions:
+                return
 
-        self._subscriptions[collection] = [
-            r
-            for r in self._subscriptions[collection]
-            if r["id"] != rule["id"]
-        ]
-        if not self._subscriptions[collection]:
-            del self._subscriptions[collection]
-            logger.info(
-                "No more rules for '%s'", collection
-            )
+            self._subscriptions[collection] = [
+                r
+                for r in self._subscriptions[collection]
+                if r["id"] != rule["id"]
+            ]
+            if not self._subscriptions[collection]:
+                del self._subscriptions[collection]
+                logger.info(
+                    "No more rules for '%s'", collection
+                )
 
     def update_rule(self, rule: dict):
         """Update a rule in the subscriptions."""
         collection = _get_collection(rule)
-        if collection not in self._subscriptions:
-            return
+        with self._lock:
+            if collection not in self._subscriptions:
+                return
 
-        self._subscriptions[collection] = [
-            rule if r["id"] == rule["id"] else r
-            for r in self._subscriptions[collection]
-        ]
+            self._subscriptions[collection] = [
+                rule if r["id"] == rule["id"] else r
+                for r in self._subscriptions[collection]
+            ]
 
     def _register(self, rule: dict) -> str:
         collection = _get_collection(rule)
-        if collection not in self._subscriptions:
-            self._subscriptions[collection] = []
-        self._subscriptions[collection].append(rule)
+        with self._lock:
+            if collection not in self._subscriptions:
+                self._subscriptions[collection] = []
+            self._subscriptions[collection].append(rule)
         return collection
 
     def _start_listener(self, collection: str):
@@ -105,9 +112,10 @@ class SSEListener:
         """Connect with exponential backoff reconnect."""
         backoff = 1
         while self._running:
-            if collection not in self._subscriptions:
-                self._threads.pop(collection, None)
-                return
+            with self._lock:
+                if collection not in self._subscriptions:
+                    self._threads.pop(collection, None)
+                    return
 
             try:
                 _sse_loop(self, collection)
@@ -237,8 +245,9 @@ def _process_events(
 ):
     """Process events from the queue."""
     while listener._running:
-        if collection not in listener._subscriptions:
-            return
+        with listener._lock:
+            if collection not in listener._subscriptions:
+                return
 
         try:
             event = event_queue.get(timeout=5)
@@ -270,11 +279,24 @@ def _handle_new_record(
     listener: SSEListener, collection: str, record: dict
 ):
     """Run all rules for this collection against the record."""
-    rules = listener._subscriptions.get(collection, [])
+    with listener._lock:
+        rules = list(listener._subscriptions.get(collection, []))
     for rule in rules:
         if not rule.get("enabled", True):
             continue
-        _process_rule(rule, record)
+        # Fetch fresh rule data from DB to avoid stale params/state
+        fresh_rule = _fetch_fresh_rule(rule)
+        if fresh_rule and fresh_rule.get("enabled", False):
+            _process_rule(fresh_rule, record)
+
+
+def _fetch_fresh_rule(rule: dict) -> dict | None:
+    """Re-read rule from DB to get current params/state."""
+    try:
+        from app.db.pb_repositories import get_rule_by_id
+        return get_rule_by_id(rule["id"])
+    except Exception:
+        return rule
 
 
 def _process_rule(rule: dict, record: dict):

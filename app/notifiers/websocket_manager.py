@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 
 from fastapi import WebSocket
 
@@ -13,6 +14,7 @@ class WebSocketManager:
     def __init__(self):
         self._connections: list[WebSocket] = []
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._lock = threading.Lock()
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop):
         """Store the main event loop for cross-thread calls."""
@@ -20,44 +22,46 @@ class WebSocketManager:
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
-        self._connections.append(ws)
-        if self._loop is None:
-            self._loop = asyncio.get_running_loop()
-        logger.info(
-            "WebSocket connected (%d active)",
-            len(self._connections),
-        )
+        with self._lock:
+            self._connections.append(ws)
+            if self._loop is None:
+                self._loop = asyncio.get_running_loop()
+            count = len(self._connections)
+        logger.info("WebSocket connected (%d active)", count)
 
     def disconnect(self, ws: WebSocket):
-        if ws in self._connections:
-            self._connections.remove(ws)
-        logger.info(
-            "WebSocket disconnected (%d active)",
-            len(self._connections),
-        )
+        with self._lock:
+            if ws in self._connections:
+                self._connections.remove(ws)
+            count = len(self._connections)
+        logger.info("WebSocket disconnected (%d active)", count)
 
     def broadcast(self, event: dict):
         """Broadcast event to all connected clients.
         Safe to call from background threads."""
-        if not self._connections:
+        with self._lock:
+            snapshot = list(self._connections)
+            loop = self._loop
+
+        if not snapshot:
             logger.warning("No WebSocket clients connected")
             return
 
-        if self._loop is None or self._loop.is_closed():
+        if loop is None or loop.is_closed():
             logger.warning("Event loop not available")
             return
 
         logger.info(
             "Broadcasting to %d client(s): %s",
-            len(self._connections),
+            len(snapshot),
             event.get("message", "")[:80],
         )
 
         dead: list[WebSocket] = []
-        for ws in list(self._connections):
+        for ws in snapshot:
             try:
                 future = asyncio.run_coroutine_threadsafe(
-                    ws.send_json(event), self._loop
+                    ws.send_json(event), loop
                 )
                 future.result(timeout=5)
                 logger.info("WebSocket message sent OK")

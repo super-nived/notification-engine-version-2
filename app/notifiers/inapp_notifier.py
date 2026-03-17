@@ -1,6 +1,7 @@
 """In-App (WebSocket) Notifier — standalone plugin.
 
-Broadcasts events to all connected WebSocket clients.
+Broadcasts a single summary notification to all connected
+WebSocket clients per rule execution.
 """
 
 import logging
@@ -24,27 +25,28 @@ class InAppNotifier(BaseNotifier):
         return "In-App"
 
     def send(self, rule: dict, events: list[dict]) -> None:
-        """Broadcast each event via WebSocket."""
+        """Broadcast one summary message via WebSocket."""
         if _websocket_manager is None:
             logger.warning("WebSocket manager not set")
             return
 
-        logger.info(
-            "In-App sending %d event(s) for '%s'",
-            len(events),
-            rule.get("name", ""),
-        )
-        for event in events:
-            try:
-                payload = {
-                    "rule_name": rule.get("name", ""),
-                    "engine": rule.get("engine", ""),
-                    "message": event.get("message", ""),
-                    "data": event.get("data", {}),
-                    "timestamp": event.get("timestamp", ""),
-                }
-                _websocket_manager.broadcast(payload)
-            except Exception as exc:
-                logger.error(
-                    "WebSocket broadcast failed: %s", exc
-                )
+        count = len(events)
+        if count == 1:
+            message = events[0].get("message", "Event detected")
+        else:
+            message = f"{count} event(s) detected"
+
+        payload = {
+            "rule_name": rule.get("name", ""),
+            "engine": rule.get("engine", ""),
+            "message": message,
+            "count": count,
+            "timestamp": events[0].get("timestamp", ""),
+        }
+
+        try:
+            _websocket_manager.broadcast(payload)
+        except Exception as exc:
+            logger.error(
+                "WebSocket broadcast failed: %s", exc
+            )

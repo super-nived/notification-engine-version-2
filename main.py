@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from app.api.v1 import api_v1
@@ -11,6 +12,14 @@ app = FastAPI(
     title="iApps Notification Engine",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(api_v1)

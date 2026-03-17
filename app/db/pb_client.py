@@ -1,4 +1,7 @@
 import logging
+import threading
+import time
+
 import requests
 
 from app.core.settings import settings
@@ -6,28 +9,45 @@ from app.core.settings import settings
 logger = logging.getLogger(__name__)
 
 _token: str | None = None
+_token_lock = threading.Lock()
+_token_time: float = 0
+_TOKEN_MAX_AGE = 3600 * 6  # refresh every 6 hours
+_session = requests.Session()  # reuse TCP connections
 
 
 def authenticate():
-    global _token
-    resp = requests.post(
-        f"{settings.PB_URL}/api/admins/auth-with-password",
-        json={
-            "identity": settings.PB_ADMIN_EMAIL,
-            "password": settings.PB_ADMIN_PASSWORD,
-        },
-        timeout=10,
-    )
-    resp.raise_for_status()
-    _token = resp.json()["token"]
+    """Authenticate and store the admin token."""
+    global _token, _token_time
+    with _token_lock:
+        resp = _session.post(
+            f"{settings.PB_URL}/api/admins/auth-with-password",
+            json={
+                "identity": settings.PB_ADMIN_EMAIL,
+                "password": settings.PB_ADMIN_PASSWORD,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        _token = resp.json()["token"]
+        _token_time = time.monotonic()
     logger.info("PocketBase admin authenticated")
 
 
+def _ensure_token() -> None:
+    """Re-authenticate if the token is stale."""
+    global _token, _token_time
+    if _token and (time.monotonic() - _token_time) < _TOKEN_MAX_AGE:
+        return
+    authenticate()
+
+
 def _headers() -> dict:
+    _ensure_token()
     return {"Authorization": _token or ""}
 
 
 def get_token() -> str:
+    _ensure_token()
     return _token or ""
 
 
@@ -49,7 +69,7 @@ def pb_list(
         params["filter"] = filter_str
     if expand:
         params["expand"] = expand
-    resp = requests.get(
+    resp = _session.get(
         f"{settings.PB_URL}/api/collections/{collection}/records",
         headers=_headers(),
         params=params,
@@ -84,7 +104,7 @@ def pb_get_full_list(
 
 
 def pb_get_one(collection: str, record_id: str) -> dict:
-    resp = requests.get(
+    resp = _session.get(
         f"{settings.PB_URL}/api/collections/{collection}/records"
         f"/{record_id}",
         headers=_headers(),
@@ -95,7 +115,7 @@ def pb_get_one(collection: str, record_id: str) -> dict:
 
 
 def pb_create(collection: str, data: dict) -> dict:
-    resp = requests.post(
+    resp = _session.post(
         f"{settings.PB_URL}/api/collections/{collection}/records",
         headers=_headers(),
         json=data,
@@ -108,7 +128,7 @@ def pb_create(collection: str, data: dict) -> dict:
 def pb_update(
     collection: str, record_id: str, data: dict
 ) -> dict:
-    resp = requests.patch(
+    resp = _session.patch(
         f"{settings.PB_URL}/api/collections/{collection}/records"
         f"/{record_id}",
         headers=_headers(),
@@ -120,7 +140,7 @@ def pb_update(
 
 
 def pb_delete(collection: str, record_id: str) -> None:
-    resp = requests.delete(
+    resp = _session.delete(
         f"{settings.PB_URL}/api/collections/{collection}/records"
         f"/{record_id}",
         headers=_headers(),
@@ -146,7 +166,7 @@ def pb_sse_connect():
 
 def pb_sse_subscribe(client_id: str, subscriptions: list[str]):
     """Subscribe to collections via PocketBase realtime."""
-    resp = requests.post(
+    resp = _session.post(
         f"{settings.PB_URL}/api/realtime",
         headers=_headers(),
         json={
